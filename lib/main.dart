@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:rxdart/rxdart.dart';
 
 void main() => runApp(new MyApp());
 
@@ -52,26 +53,74 @@ class _MyHomePageState extends State<MyHomePage> {
               ),
             ),
           ),
+          _buildPreamble(),
           new Flexible(child: _buildResults()),
         ],
       ),
     );
   }
 
+  Widget _buildPreamble() => StreamBuilder(
+        stream: bloc.preamble,
+        builder: (_, snapshot) => Text(snapshot?.data ?? ''),
+      );
+
   Widget _buildResults() {
     return StreamBuilder(
       stream: bloc.results,
-      builder: (_, snapshot) =>
-          (snapshot?.connectionState == ConnectionState.waiting)
-              ? new Center(child: CircularProgressIndicator())
-              : (snapshot?.data as List).length > 0
-                  ? ListView.builder(
-                      itemBuilder: (_, index) => ListTile(
-                            title: Text(snapshot?.data[index]),
-                          ),
-                    )
-                  : new Center(child: Text('No data found')),
+      initialData: [],
+      builder: (_, snapshot) {
+        if (snapshot.hasData) {
+          var list = snapshot?.data as List;
+          return list.length > 0
+              ? ListView.builder(
+                  itemCount: list.length,
+                  itemBuilder: (_, index) => ListTile(
+                        title: Text(snapshot?.data[index]),
+                      ),
+                )
+              : Center(child: Text('No data found'));
+        } else {
+          return Text('Not found');
+        }
+      },
     );
+  }
+}
+
+class SearchBloc {
+  final Api api;
+
+  Stream<String> _preamble = new Stream.empty();
+  Stream<String> get preamble => _preamble;
+
+  Stream<List<String>> _results = new Stream.empty();
+  Stream<List<String>> get results => _results;
+
+  //With RxDart
+  ReplaySubject<String> _query = new ReplaySubject<String>();
+
+  //With built-in streams
+  //StreamController<String> _query = new StreamController<String>();
+  Sink<String> get query => _query;
+
+  SearchBloc(this.api) {
+    //With RxDart
+    _results = _query
+        .distinct()
+        .asyncMap(api.search)
+        .asBroadcastStream();
+
+    _preamble = new Observable(results)
+        .withLatestFrom(_query.stream, (_, query) => 'Results for $query')
+        .asBroadcastStream();
+
+    //With built-in stream
+    //_results = _query.stream.asyncMap(api.search).asBroadcastStream();
+  }
+
+  void dispose() {
+    _query.close();
   }
 }
 
@@ -93,35 +142,5 @@ class Api {
         .toList();
 
     return list;
-  }
-}
-
-class SearchBloc {
-  //final Sink<String> query = new StreamController();
-  final Api api;
-
-  Stream<List<String>> _results = new Stream.empty();
-  Stream<List<String>> get results => _results;
-
-  //With RxDart
-  //ReplaySubject<String> _query = new ReplaySubject<String>();
-
-  //With built-in streams
-  StreamController<String> _query = new StreamController<String>();
-  Sink<String> get query => _query;
-
-  SearchBloc(this.api) {
-    //With RxDart
-    // _results = _query
-    //   .observable
-    //   .asyncMap(api.search)
-    //   .asBroadcastStream();
-
-    //With built-in stream
-    _results = _query.stream.asyncMap(api.search).asBroadcastStream();
-  }
-
-  void dispose() {
-    _query.close();
   }
 }
